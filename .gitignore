@@ -3,3 +3,4 @@
 .RData
 .Ruserdata
 data/Gender_Stats_CSV/
+.DS_Store
