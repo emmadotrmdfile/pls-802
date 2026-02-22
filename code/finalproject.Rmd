@@ -1,0 +1,350 @@
+---
+title: "final_project"
+author: "Huizenga"
+date: "2024-03-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+trip <- read.csv("/Users/emmahuizenga/Desktop/dataverse_files/replication_data.tab", sep = "\t")
+```
+
+
+```{r}
+library(MatchIt)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+```
+
+> for the e_boix_regime variable:
+Democracy
+Dichotomous democracy measure. 1 = Democracy.
+sovereign
+Dichotomous indicator of sovereignty/independence (if 0, democracy is NA).
+
+
+
+
+
+```{r}
+women_leg <- read.csv("/Users/emmahuizenga/Desktop/dataverse_files/P_Data_Extract_From_World_Development_Indicators/cb10d875-55b4-4027-a50a-fe8af6e28e61_Data.csv")
+```
+
+
+```{r}
+women_leaders <- read.csv("/Users/emmahuizenga/Desktop/dataverse_files/leadership/Leadership.csv")
+```
+
+
+```{r}
+context <- read.csv("/Users/emmahuizenga/Desktop/dataverse_files/leadership/Contextual Indicators.csv")
+```
+
+
+```{r}
+prop_women <- read.csv("/Users/emmahuizenga/Desktop/dataverse_files/proportion-of-seats-held-by-women-in-national-parliaments/Proportion of seats held by women in national parliaments (%).csv")
+```
+
+
+```{r}
+gender_leaders <- read.csv("/Users/emmahuizenga/Desktop/dataverse_files/share-of-countries-by-gender-of-the-head-of-state.csv")
+```
+
+```{r}
+head_of_state <- read.csv("/Users/emmahuizenga/Desktop/dataverse_files/WFP - GWLT - Tracker - Export.csv")
+```
+
+```{r}
+colnames(prop_women)[colnames(prop_women) == 'Country.Name'] <- 'country_name'
+colnames(prop_women)[colnames(prop_women) == 'Year'] <- 'year'
+```
+
+
+```{r}
+merged_df <- merge(trip, prop_women, by = c('country_name','year'))
+```
+
+
+
+
+```{r}
+summary(prop_women)
+```
+
+```{r}
+median_prop_women <- median(prop_women$Value)
+
+# Set the threshold equal to the mean proportion of women
+threshold <- median_prop_women
+
+# Create a new column 'treatment_status' and assign treatment status based on the threshold
+prop_women$treatment_status <- ifelse(prop_women$Value > threshold, 1, 0)
+```
+
+```{r}
+# Assuming 'treatment_status' is the column containing the treatment status (0 or 1)
+
+# Count the number of observations in each category of treatment status
+treatment_counts <- table(prop_women$treatment_status)
+
+# Display the counts
+print(treatment_counts)
+
+```
+
+
+
+```{r}
+merged_df <- merge(trip, prop_women, by = c('country_name','year'))
+```
+
+running regression simply on treatment and outcome
+```{r}
+model1 <- lm(trip_score ~ treatment_status, data = merged_df)
+summary(model1)
+```
+
+
+```{r}
+# Assuming 'data' is your dataset
+# Replace missing values with mean for numeric covariates
+#merged_df$e_boix_regime[is.na(merged_df$e_boix_regime)] <- mean(merged_df$e_boix_regime, na.rm = TRUE)
+#merged_df$lgdppc_wb[is.na(merged_df$lgdppc_wb)] <- mean(merged_df$lgdppc_wb, na.rm = TRUE)
+#merged_df$lgb_score[is.na(merged_df$lgb_score)] <- mean(merged_df$lgb_score, na.rm = TRUE)
+#merged_df$e_polity2[is.na(merged_df$e_polity2)] <- mean(merged_df$e_polity2, na.rm = TRUE)
+
+```
+
+
+
+comparison between the treated and control groups using the covariates/confounders 
+```{r}
+pre_match_balance = matchit(treatment_status ~ e_boix_regime + lgdppc_wb + religiosity_percent + lgb_score +
+                              e_polity2, data = merged_df, method=NULL) 
+summary(pre_match_balance)
+```
+
+```{r}
+match_1 = matchit(treatment_status ~ e_boix_regime + lgdppc_wb + religiosity_percent + lgb_score +
+                    e_polity2, data = merged_df, distance = "mahalanobis", replace = TRUE, method = "nearest")
+
+summary(match_1, un=FALSE)
+
+plot(summary(match_1))
+
+```
+
+```{r}
+match_data = match.data(match_1)
+model3 <- lm(trip_score ~ treatment_status, data = match_data)
+summary(model3)
+```
+
+```{r}
+prop_score = glm(treatment_status ~ e_boix_regime + lgdppc_wb + religiosity_percent + lgb_score +
+                    e_polity2, data = merged_df, family = binomial(link="logit"))
+
+summary(prop_score)
+# plotting
+
+# create a data frame where we will have the propensity score 
+#(how likely is each unit to be treated based on the above model), and the 
+#treatment status
+prop_data = data.frame(prop = predict(prop_score, type = "response"), treatment = merged_df$treatment_status)
+
+
+# plotting
+ggplot(prop_data, aes(x = prop, 
+                      fill = as.factor(treatment), 
+                      group = treatment, 
+                      bins = 30)) +
+  geom_histogram(alpha=0.5, 
+                 position="identity") +
+  labs(y = "Count", 
+       x = "Probability of treatment given covariation", 
+       fill = "Treatment Status")
+```
+
+
+```{r}
+prop_score2 = glm(treatment_status ~ e_boix_regime + lgdppc_wb + religiosity_percent + lgb_score +
+                    e_polity2, data = match_data, family = binomial(link="logit"))
+
+#doing the same thing but with matched data
+
+prop_data2 = data.frame(prop = predict(prop_score2, 
+                                     type = "response"), 
+                        treatment = match_data$treatment_status)
+#creating the data frame for propensity score but with matched data
+
+# plotting
+ggplot(prop_data2, 
+       aes(x = prop, 
+           fill = as.factor(treatment), 
+           group = treatment, 
+           bins = 30)) +
+  geom_histogram(alpha=0.5, 
+                 position="identity") +
+  labs(y = "Count", 
+       x = "Probability of treatment given covariation", 
+       fill = "Treatment status")
+```
+
+```{r}
+library("WeightIt")
+```
+
+running regression simply on treated and outcome
+```{r}
+model_unweighted <- lm(trip_score ~ Value, data = merged_df)
+summary(model_unweighted)
+```
+creating merged df with complete cases 
+```{r}
+merged_complete_df <- merged_df %>% 
+select(trip_score, Value, v2x_polyarchy, lgdppc_wb, religiosity_percent, e_polity2, country_name, year) %>%  
+  filter(complete.cases(.))
+```
+
+```{r}
+mean(is.na(merged_df$trip_score))
+mean(is.na(merged_df$Value))
+mean(is.na(merged_df$e_boix_regime))
+mean(is.na(merged_df$lgdppc_wb))
+mean(is.na(merged_df$religiosity_percent))
+mean(is.na(merged_df$lgb_score))
+mean(is.na(merged_df$e_polity2))
+mean(is.na(merged_df$lgb_legal))
+mean(is.na(merged_df$year))
+```
+
+
+
+creating a weighted data set and a histogram 
+```{r}
+weight1 = weightit(Value ~ v2x_polyarchy + lgdppc_wb + religiosity_percent + year, 
+                   data = merged_complete_df, method = "cbps", estimand = "ATT") 
+
+summary(weight1, un = FALSE)
+
+plot(summary(weight1)) +
+  theme_classic()
+
+weight1
+```
+```{r}
+weights_vector <- weights(weight1)
+```
+
+conditional ignorability 
+```{r}
+conditional <- lm(Value ~ v2x_polyarchy + lgdppc_wb + religiosity_percent + year, data = merged_complete_df, 
+                  weights = weights_vector) 
+
+summary(conditional)
+
+```
+
+
+using weighted data to run regression 
+```{r}
+model_weighted <- lm_weightit(trip_score ~ Value, data = merged_complete_df, weightit = weight1)
+summary(model_weighted)
+```
+creating a data frame with the weights 
+```{r}
+# Extract the weights from the weight1 object
+weights <- weight1$weights
+
+# Extract the covariates from your original dataset
+covariates <- merged_complete_df[, c("v2x_polyarchy", "lgdppc_wb", "religiosity_percent")]
+
+outcome <- merged_complete_df[, c("trip_score")]
+# Now 'weights_df' contains the treatment variable, covariates, and corresponding weights for each observation
+
+
+# Combine the weights with the treatment variable in your dataset
+treatment_var <- merged_complete_df$Value
+
+# Combine the treatment variable and weights into a data frame
+weights_df <- data.frame(Treatment = treatment_var, Weights = weights, covariates, outcome)
+
+# Now 'weights_df' contains the treatment variable and the corresponding weights for each observation
+
+```
+
+
+
+unweighted propensity score stuff
+
+
+```{r}
+# Fit linear regression model to predict treatment assignment
+linear_model <- lm(Value ~ v2x_polyarchy + lgdppc_wb + religiosity_percent, data = merged_complete_df)
+
+# Predict propensity scores
+propensity_scores <- predict(linear_model)
+
+# Store propensity scores in your dataset
+merged_complete_df$Propensity_Score <- propensity_scores
+
+```
+
+
+
+final plot 
+ab line of two lines from unweighted and weight regressions 
+```{r}
+ggplot()
+```
+
+
+```{r}
+ggplot(merged_complete_df, aes(x = v2x_polyarchy, y = Value,)) +
+  geom_point() +
+  theme_classic() +
+  labs(title = "Common support for regime type--pretty good")
+```
+
+```{r}
+p2 <- ggplot(merged_complete_df, aes(x = lgdppc_wb, y = Value)) +
+  geom_point() +
+  theme_classic() +
+  labs(title = "Common Support for GDP", 
+       x = "GDP per capita",
+       y = "") 
+  
+```
+
+```{r}
+p1 <- ggplot(merged_complete_df, aes(x = religiosity_percent, y = Value)) +
+  geom_point() +
+  theme_classic() +
+  annotate("rect", xmin= 0.2, xmax=0.5, ymin=30, ymax=60, color="red", alpha=0) +
+  annotate("text", x = 0.35, y=45, label = "These values \n of relig. have \n no prob of \n treat this high", color="red") +
+  labs(title = "Common Support for Religiousity",
+       x = "Religiosity Percent", 
+       y = "Prop. of Women in National Parliaments")
+
+p1
+```
+
+```{r}
+library(patchwork)
+```
+
+```{r}
+combined_plot <- (p1 | p2)
+
+combined_plot
+```
+
+```{r}
+ggsave("my_plot.png", plot = combined_plot, width = 8, height = 4, dpi = 300)
+
+```

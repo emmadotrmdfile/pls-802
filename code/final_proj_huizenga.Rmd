@@ -1,0 +1,158 @@
+---
+title: "final_clean"
+author: "Huizenga"
+date: "2024-04-17"
+output: html_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library("WeightIt")
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+```
+
+```{r}
+trip <- read.csv("/Users/emmahuizenga/Desktop/dataverse_files/replication_data.tab", sep = "\t")
+```
+
+```{r}
+prop_women <- read.csv("/Users/emmahuizenga/Desktop/dataverse_files/proportion-of-seats-held-by-women-in-national-parliaments/Proportion of seats held by women in national parliaments (%).csv")
+```
+
+```{r}
+colnames(prop_women)[colnames(prop_women) == 'Country.Name'] <- 'country_name'
+colnames(prop_women)[colnames(prop_women) == 'Year'] <- 'year'
+```
+
+```{r}
+merged_df <- merge(trip, prop_women, by = c('country_name','year'))
+```
+
+running regression simply on treatment and outcome
+```{r}
+model_unweighted <- lm(trip_score ~ Value, data = merged_df)
+summary(model_unweighted)
+
+confint(model_unweighted)
+```
+
+creating merged df with complete cases 
+```{r}
+merged_complete_df <- merged_df %>% 
+select(trip_score, Value, v2x_polyarchy, lgdppc_wb, religiosity_percent, e_polity2, country_name, year) %>%  
+  filter(complete.cases(.))
+```
+
+creating a weighted data set 
+```{r}
+weight1 = weightit(Value ~ v2x_polyarchy + lgdppc_wb + year + religiosity_percent, 
+                   data = merged_complete_df, method = "cbps", estimand = "ATE") 
+
+summary(weight1, un = FALSE)
+
+weight1
+```
+
+```{r}
+weights <- weights(weight1)
+```
+
+for conditional ignorability
+```{r}
+conditional <- lm(Value ~ v2x_polyarchy + lgdppc_wb + religiosity_percent + year, data = merged_complete_df, 
+                  weights = weights) 
+
+summary(conditional)
+```
+for common support
+
+```{r}
+ggplot(merged_complete_df, aes(x = v2x_polyarchy, y = Value,)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Common support for regime type--pretty good")
+```
+
+```{r}
+ggplot(merged_df, aes(x = year, y = Value)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Common support for year--also good!")
+```
+
+```{r}
+p2 <- ggplot(merged_complete_df, aes(x = lgdppc_wb, y = Value)) +
+  geom_point() +
+  theme_classic() +
+  labs(title = "Common Support for GDP", 
+       x = "GDP per capita",
+       y = "") 
+  
+```
+
+```{r}
+p1 <- ggplot(merged_complete_df, aes(x = religiosity_percent, y = Value)) +
+  geom_point() +
+  theme_classic() +
+  annotate("rect", xmin= 0.2, xmax=0.5, ymin=30, ymax=60, color="red", alpha=0) +
+  annotate("text", x = 0.35, y=45, label = "These values \n of relig. have \n no prob of \n treat this high", color="red") +
+  labs(title = "Common Support for Religiousity",
+       x = "Religiosity Percent", 
+       y = "Prop. of Women in National Parliaments")
+```
+
+```{r}
+library(patchwork)
+```
+
+```{r}
+combined_plot <- (p1 | p2)
+```
+
+```{r}
+ggsave("yea.png", plot = combined_plot, width = 8, height = 4, dpi = 300)
+```
+
+
+using weighted data to run regression 
+```{r}
+model_weighted <- lm_weightit(trip_score ~ Value, data = merged_complete_df, weightit = weight1)
+summary(model_weighted, ci = TRUE)
+
+
+
+```
+
+results ew 
+this took 5+ minutes to load every single time i was trying to run it, so 
+i had to abandon the confidence intervals 
+i even transferred everything to a pc and somehow it still wasn't loading
+
+```{r}
+
+p3 <- ggplot(data = merged_complete_df,
+       aes(x = Value, y = trip_score)) +
+  geom_abline(intercept = 1.61743, slope = .01846) +
+  geom_abline(intercept = .901377, slope = 0.062581, linetype = "dashed")  +
+  theme_classic() + 
+  geom_rug(sides="b") +
+  labs(title = "Results", 
+       x = "% of Women in National Parliaments", 
+       y = "Measure of Protections against Trans Indivduals") +
+  ggtext::geom_richtext(label = "Naive", x = 50, y = 4, color = "red") +
+  ggtext::geom_richtext(label = "ATE", x = 40, y = 2.5, color = "blue")  
+  #geom_ribbon(aes(ymin = 0.01445, ymax =  0.02248, 
+                #  xmin = -Inf, xmax = Inf), fill = "blue", alpha = 0.3) +
+  #geom_ribbon(aes(ymin = 0.05669135, ymax = 0.06847035, 
+                 # xmin = -Inf, xmax = Inf), fill = "red", alpha = 0.3) 
+```
+
+```{r}
+ggsave("yea2.png", plot = p3, width = 7, height = 5, dpi = 300)
+```
+
